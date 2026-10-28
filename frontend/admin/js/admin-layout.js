@@ -2,6 +2,7 @@ import { escapeHtml } from "../../js/html.js";
 import { adminLogout } from "./admin-api.js";
 
 const NAV_ITEMS = [
+  { key: "pacotes", href: "pacotes.html", icon: "inventory_2", label: "Pacotes dos Pets" },
   { key: "dashboard", href: "dashboard.html", icon: "today", label: "Agendamentos do Dia" },
   { key: "analise", href: "analise.html", icon: "monitoring", label: "Análise" },
   { key: "calendario", href: "calendario.html", icon: "calendar_month", label: "Calendário" },

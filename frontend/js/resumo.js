@@ -1,6 +1,6 @@
 import { api, resolveAssetUrl } from "./api.js";
 import { requireAuth } from "./guard.js";
-import { getBooking, resetBooking } from "./booking.js";
+import { getBooking, resetBooking, updateBooking } from "./booking.js";
 import { formatCents, formatDateLong } from "./format.js";
 import { escapeHtml } from "./html.js";
 
@@ -45,22 +45,39 @@ function init(booking) {
       `${escapeHtml(booking.address.city)}/${escapeHtml(booking.address.state)} · CEP ${escapeHtml(booking.address.cep)}`;
   }
 
-  const needsFee = booking.checkinMode === "busca_em_casa" || booking.checkoutMode === "entrega_em_casa";
-  const pickupFeeCents = needsFee ? 1500 : 0;
-  const totalCents = booking.service.price_cents + pickupFeeCents;
-
-  document.getElementById("servicePriceLabel").textContent = `Serviço: ${booking.service.name}`;
-  document.getElementById("servicePriceValue").textContent = formatCents(booking.service.price_cents);
-  if (pickupFeeCents > 0) {
-    document.getElementById("feeRow").style.display = "flex";
-    document.getElementById("feeValue").textContent = formatCents(pickupFeeCents);
-  }
-  document.getElementById("totalValue").textContent = formatCents(totalCents);
-
   const confirmBtn = document.getElementById("confirmBtn");
   const errorEl = document.getElementById("errorMsg");
+  const paymentMethod = document.getElementById("paymentMethod");
+  paymentMethod.value = booking.paymentMethod || "";
+  let quote = null;
+  const payload = () => ({ pet_id: booking.pet.id, service_id: booking.service.id,
+    date: booking.date, time: booking.time, checkin_mode: booking.checkinMode,
+    checkout_mode: booking.checkoutMode, customer_package_id: booking.customerPackageId || null });
+
+  function updateConfirm() {
+    confirmBtn.disabled = !quote || (quote.total_cents > 0 && !paymentMethod.value);
+  }
+  paymentMethod.addEventListener("change", () => { updateBooking({ paymentMethod: paymentMethod.value || null }); updateConfirm(); });
+
+  api.estimateAppointment(payload()).then(({ estimate }) => {
+    quote = estimate;
+    document.getElementById("servicePriceLabel").textContent = `Serviço: ${booking.service.name}`;
+    document.getElementById("servicePriceValue").textContent = quote.package_name ? "Incluído no pacote" : formatCents(quote.service_price_cents);
+    const requested = booking.checkinMode === "busca_em_casa" || booking.checkoutMode === "entrega_em_casa";
+    document.getElementById("feeValue").textContent = quote.pickup_fee_cents > 0 ? formatCents(quote.pickup_fee_cents) : requested ? "Incluído no contrato" : "Não solicitado";
+    document.getElementById("totalValue").textContent = quote.total_cents ? formatCents(quote.total_cents) : "Sem valor adicional previsto";
+    document.getElementById("paymentSection").hidden = quote.total_cents === 0;
+    if (quote.package_name) {
+      const summary = document.getElementById("packageSummary");
+      summary.hidden = false;
+      summary.textContent = `${quote.package_name}. Será reservado 1 crédito. Cancelamento com ${quote.cancellation_notice_hours}h de antecedência. ${quote.pickup_included ? "Busca incluída. " : ""}${quote.delivery_included ? "Entrega incluída." : ""}`;
+    }
+    updateConfirm();
+  }).catch((err) => { errorEl.textContent = err.message; errorEl.style.display = "block"; })
+    .finally(() => { document.getElementById("estimateLoading").hidden = true; });
 
   confirmBtn.addEventListener("click", async () => {
+    if (!quote || confirmBtn.disabled) return;
     errorEl.style.display = "none";
     confirmBtn.disabled = true;
     confirmBtn.textContent = "Confirmando...";
@@ -71,12 +88,8 @@ function init(booking) {
         addressId = address.id;
       }
       const { appointment } = await api.createAppointment({
-        pet_id: booking.pet.id,
-        service_id: booking.service.id,
-        date: booking.date,
-        time: booking.time,
-        checkin_mode: booking.checkinMode,
-        checkout_mode: booking.checkoutMode,
+        ...payload(),
+        payment_method: quote.total_cents > 0 ? paymentMethod.value : null,
         address_id: addressId,
       });
       resetBooking();
@@ -86,8 +99,8 @@ function init(booking) {
       errorEl.textContent = err.message;
       errorEl.style.display = "block";
     } finally {
-      confirmBtn.disabled = false;
-      confirmBtn.textContent = "Avançar";
+      updateConfirm();
+      confirmBtn.textContent = "Enviar solicitação";
     }
   });
 }

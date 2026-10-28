@@ -154,6 +154,87 @@ const SCHEMA_STATEMENTS = [
     FOREIGN KEY (service_id) REFERENCES services(id),
     FOREIGN KEY (address_id) REFERENCES addresses(id)
   ) ENGINE=InnoDB`,
+
+  `CREATE TABLE IF NOT EXISTS package_plans (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    service_id VARCHAR(36) NOT NULL,
+    price_cents INT NOT NULL,
+    quantity INT NOT NULL DEFAULT 4,
+    validity_days INT NOT NULL DEFAULT 30,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (service_id) REFERENCES services(id)
+  ) ENGINE=InnoDB`,
+
+  `CREATE TABLE IF NOT EXISTS customer_packages (
+    id VARCHAR(36) PRIMARY KEY,
+    plan_id VARCHAR(36) NOT NULL,
+    user_id VARCHAR(36) NOT NULL,
+    pet_id VARCHAR(36) NOT NULL,
+    service_id VARCHAR(36) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    price_cents INT NOT NULL,
+    quantity INT NOT NULL DEFAULT 4,
+    validity_days INT NOT NULL DEFAULT 30,
+    includes_pickup TINYINT(1) NOT NULL DEFAULT 0,
+    includes_delivery TINYINT(1) NOT NULL DEFAULT 0,
+    cancellation_notice_hours INT NOT NULL DEFAULT 24,
+    notes TEXT,
+    status VARCHAR(20) NOT NULL DEFAULT 'rascunho',
+    starts_on VARCHAR(10),
+    expires_on VARCHAR(10),
+    activated_at DATETIME,
+    created_by VARCHAR(36) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX package_pet_status (pet_id, status),
+    FOREIGN KEY (plan_id) REFERENCES package_plans(id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (pet_id) REFERENCES pets(id),
+    FOREIGN KEY (service_id) REFERENCES services(id),
+    FOREIGN KEY (created_by) REFERENCES admins(id)
+  ) ENGINE=InnoDB`,
+
+  `CREATE TABLE IF NOT EXISTS package_usages (
+    id VARCHAR(36) PRIMARY KEY,
+    customer_package_id VARCHAR(36) NOT NULL,
+    appointment_id VARCHAR(36) NOT NULL UNIQUE,
+    week_start VARCHAR(10) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'reservado',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX package_week_status (customer_package_id, week_start, status),
+    FOREIGN KEY (customer_package_id) REFERENCES customer_packages(id),
+    FOREIGN KEY (appointment_id) REFERENCES appointments(id)
+  ) ENGINE=InnoDB`,
+
+  `CREATE TABLE IF NOT EXISTS notifications (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    appointment_id VARCHAR(36) NOT NULL,
+    event_type VARCHAR(20) NOT NULL,
+    title VARCHAR(100) NOT NULL,
+    message TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY notification_event (appointment_id, event_type),
+    INDEX notification_owner (user_id, created_at),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB`,
+
+  `CREATE TABLE IF NOT EXISTS notification_deliveries (
+    id VARCHAR(36) PRIMARY KEY,
+    notification_id VARCHAR(36) NOT NULL,
+    channel VARCHAR(20) NOT NULL,
+    recipient VARCHAR(30) NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'aguardando_integracao',
+    provider_message_id VARCHAR(255) NULL,
+    attempts INT NOT NULL DEFAULT 0,
+    last_error TEXT NULL,
+    sent_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY notification_channel (notification_id, channel),
+    INDEX delivery_status (status, created_at),
+    FOREIGN KEY (notification_id) REFERENCES notifications(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB`,
 ];
 
 export async function initDatabase() {
@@ -203,6 +284,29 @@ export async function initDatabase() {
     } catch (err) {
       if (err.code !== "ER_DUP_FIELDNAME") throw err;
     }
+  }
+
+  // Aditiva e idempotente: atendimentos anteriores permanecem avulsos.
+  for (const column of [
+    "customer_package_id VARCHAR(36) NULL",
+    "payment_method VARCHAR(30) NULL",
+    "package_covered_cents INT NOT NULL DEFAULT 0",
+    "pickup_included TINYINT(1) NOT NULL DEFAULT 0",
+    "delivery_included TINYINT(1) NOT NULL DEFAULT 0",
+  ]) {
+    try {
+      await pool.query(`ALTER TABLE appointments ADD COLUMN ${column}`);
+    } catch (err) {
+      if (err.code !== "ER_DUP_FIELDNAME") throw err;
+    }
+  }
+  try {
+    await pool.query(`ALTER TABLE appointments ADD CONSTRAINT fk_appointment_package FOREIGN KEY (customer_package_id) REFERENCES customer_packages(id)`);
+  } catch (err) {
+    // MySQL e MariaDB usam códigos diferentes para constraint duplicada.
+    if (!["ER_FK_DUP_NAME", "ER_DUP_KEYNAME", "ER_CANT_CREATE_TABLE"].includes(err.code)) throw err;
+    const existing = await db.get(`SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'appointments' AND CONSTRAINT_NAME = 'fk_appointment_package'`, [DB_NAME]);
+    if (!existing) throw err;
   }
 }
 

@@ -1,6 +1,6 @@
 import { api, resolveAssetUrl } from "./api.js";
 import { requireAuth } from "./guard.js";
-import { updateBooking } from "./booking.js";
+import { updateBooking, petHasActiveAppointment, PET_ACTIVE_APPOINTMENT_ERROR } from "./booking.js";
 import { escapeHtml } from "./html.js";
 
 const isManageMode = new URLSearchParams(window.location.search).get("mode") === "manage";
@@ -19,10 +19,6 @@ function init() {
   const emptyState = document.getElementById("emptyState");
   const advanceBar = document.getElementById("advanceBar");
   const advanceBtn = document.getElementById("advanceBtn");
-  const dialog = document.getElementById("confirmDialog");
-  const dialogMessage = document.getElementById("dialogMessage");
-  const confirmCancelBtn = document.getElementById("confirmCancelBtn");
-  const cancelCancelBtn = document.getElementById("cancelCancelBtn");
 
   if (isManageMode) {
     document.getElementById("screenTitle").textContent = "Meus Pets";
@@ -37,13 +33,14 @@ function init() {
   let pets = [];
   let appointmentsByPet = {};
   let selectedId = null;
-  let cancelTarget = null; // { appointmentId, petName }
 
   function loadData() {
+    selectedId = null;
+    advanceBtn.disabled = true;
     loadingMsg.style.display = "block";
     errorMsg.style.display = "none";
     listEl.innerHTML = "";
-    Promise.all([api.getPets(), api.getAppointments()])
+    return Promise.all([api.getPets(), api.getAppointments()])
       .then(([petsRes, apptsRes]) => {
         pets = petsRes.pets;
         appointmentsByPet = {};
@@ -70,17 +67,16 @@ function init() {
       const appointment = appointmentsByPet[pet.id];
       const isBooked = Boolean(appointment);
       const active = selectedId === pet.id;
-      const disableSelect = !isManageMode && isBooked;
 
       const card = document.createElement("div");
-      card.className = `card pet-card${disableSelect ? " pet-card--booked" : ""}${active ? " pet-card--selected" : ""}`;
+      card.className = `card pet-card${isBooked && !isManageMode ? " pet-card--booked" : ""}${active ? " pet-card--selected" : ""}`;
 
       const photo = pet.photo_url
         ? `<img src="${escapeHtml(resolveAssetUrl(pet.photo_url))}" alt="${escapeHtml(pet.name)}">`
         : `<span class="material-symbols-rounded" aria-hidden="true">pets</span>`;
 
       card.innerHTML = `
-        <button type="button" class="pet-card__select" ${disableSelect ? "disabled" : ""}>
+        <button type="button" class="pet-card__select" ${isBooked && !isManageMode ? "disabled" : ""}>
           <div class="pet-card__photo">${photo}</div>
           <div class="pet-card__info">
             <p class="pet-card__name">${escapeHtml(pet.name)}</p>
@@ -92,33 +88,26 @@ function init() {
                   }</span>`
                 : ""
             }
+            ${isBooked ? '<p class="pet-card__meta">Novo agendamento bloqueado enquanto este atendimento estiver em andamento.</p>' : ""}
           </div>
           ${
             isManageMode
               ? `<span class="material-symbols-rounded" aria-hidden="true">chevron_right</span>`
-              : !isBooked
-                ? `<span class="pet-card__check"><span class="material-symbols-rounded" aria-hidden="true">check</span></span>`
-                : ""
+              : `<span class="pet-card__check"><span class="material-symbols-rounded" aria-hidden="true">${isBooked ? "lock" : "check"}</span></span>`
           }
         </button>
-        ${!isManageMode && isBooked ? `<button type="button" class="pet-card__cancel">Cancelar</button>` : ""}
       `;
 
       if (isManageMode) {
         card.querySelector(".pet-card__select").addEventListener("click", () => {
           window.location.href = `pet-detalhe.html?id=${pet.id}`;
         });
-      } else if (!isBooked) {
+      } else {
         card.querySelector(".pet-card__select").addEventListener("click", () => {
+          if (appointmentsByPet[pet.id]) return;
           selectedId = pet.id;
           advanceBtn.disabled = false;
           render();
-        });
-      } else {
-        card.querySelector(".pet-card__cancel").addEventListener("click", () => {
-          cancelTarget = { appointmentId: appointment.id, petName: pet.name };
-          dialogMessage.textContent = `Tem certeza que deseja cancelar o agendamento de ${pet.name}? Essa ação não pode ser desfeita.`;
-          dialog.showModal();
         });
       }
 
@@ -126,35 +115,29 @@ function init() {
     }
   }
 
-  confirmCancelBtn.addEventListener("click", async () => {
-    if (!cancelTarget) return;
-    confirmCancelBtn.disabled = true;
-    confirmCancelBtn.textContent = "Cancelando...";
+  advanceBtn.addEventListener("click", async () => {
+    if (advanceBtn.disabled) return;
+    const pet = pets.find((p) => p.id === selectedId);
+    if (!pet || appointmentsByPet[pet.id]) return;
+    advanceBtn.disabled = true;
     try {
-      await api.cancelAppointment(cancelTarget.appointmentId);
-      dialog.close();
-      cancelTarget = null;
-      loadData();
-    } catch (err) {
-      errorMsg.textContent = err.message;
+      const { appointments } = await api.getAppointments();
+      if (petHasActiveAppointment(appointments, pet.id)) {
+        await loadData();
+        errorMsg.textContent = PET_ACTIVE_APPOINTMENT_ERROR;
+        errorMsg.style.display = "block";
+        return;
+      }
+      updateBooking({ pet });
+      window.location.href = "agendar.html";
+    } catch (error) {
+      errorMsg.textContent = error.message;
       errorMsg.style.display = "block";
-    } finally {
-      confirmCancelBtn.disabled = false;
-      confirmCancelBtn.textContent = "Sim, cancelar";
+      advanceBtn.disabled = false;
     }
   });
 
-  cancelCancelBtn.addEventListener("click", () => {
-    cancelTarget = null;
-    dialog.close();
-  });
-
-  advanceBtn.addEventListener("click", () => {
-    const pet = pets.find((p) => p.id === selectedId);
-    if (!pet) return;
-    updateBooking({ pet });
-    window.location.href = "agendar.html";
-  });
-
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) loadData(); });
+  window.addEventListener("pageshow", (event) => { if (event.persisted) loadData(); });
   loadData();
 }

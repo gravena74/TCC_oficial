@@ -363,6 +363,57 @@ reintroduza uma verificação (SMS/WhatsApp) antes de uso real.
 | PATCH | `/api/admin/clients/:id/status` | admin | Aprova/reprova cliente |
 | GET | `/api/admin/analytics` | admin | Métricas dos últimos 12 meses (demanda, receita, etc.) |
 
+## Pacotes de banho e pagamento presencial
+
+O aplicativo registra estimativas e a forma de pagamento prevista na loja. Não processa cobranças nem confirma recebimentos.
+
+Cada pet pode ter apenas um atendimento em andamento: qualquer registro `em_analise` ou `agendado` bloqueia uma nova solicitação, independentemente do dia, horário, serviço ou uso de pacote. A liberação ocorre após conclusão, recusa ou cancelamento; a passagem da data, por si só, não altera o status. A seleção de pets e a ação de agendar pelo pacote ficam desabilitadas, mas a ficha continua acessível para consulta e edição. A API aplica a mesma regra na estimativa e, sob trava do pet, na criação transacional, protegendo contra outras abas e requisições simultâneas. O histórico existente é preservado.
+
+Validação desta regra: `node evidencias_testes/qa/pet-active-booking.mjs`, na raiz do workspace, usa banco temporário, API real e Chrome. Oito grupos cobrem estados, liberação, pacote/avulso, sessões antigas, interface e doze requisições simultâneas em dias e serviços distintos. Resultados em `evidencias_testes/resultados/qa_pet_agendamento_unico.json`. Os testes de pacotes passam a simular a conclusão de cada banho antes de reservar o seguinte.
+
+- No painel **Pacotes dos Pets** (`frontend/admin/pacotes.html`), selecione cliente/pet e plano, informe o valor combinado, busca/entrega incluídas e antecedência para cancelamento (padrão: 24 horas). Cadastre o contrato e depois clique em **Ativar por 30 dias**.
+- A ativação é manual e inicia 30 dias de calendário no fuso do pet shop. A data de início está incluída e a data final armazenada é exclusiva; a interface exibe o último dia válido. Exemplo: ativação em 13/10 permite banhos até 11/11, inclusive.
+- Cada contrato pertence a um único pet e ao serviço de banho escolhido, compatível com seu porte. Um pet não pode ter contratos ativos com períodos sobrepostos. Para renovar, crie outro contrato.
+- São quatro créditos, com no máximo um banho por semana de segunda a domingo. Solicitações em análise já reservam crédito e semana; concluir o atendimento consome o crédito. Cancelar ou recusar libera a reserva, preservando o histórico. Requisições simultâneas são protegidas por transações e bloqueios no banco.
+- Em **Meus Pacotes**, o cliente vê validade, condições e saldo. Também pode escolher atendimento avulso ao agendar. O calendário desabilita dias fora do contrato e semanas ocupadas.
+- Busca e entrega são configuradas separadamente no contrato. O frete permanece R$ 15 por agendamento quando algum trajeto solicitado não está coberto. Endereço é obrigatório sempre que houver transporte, inclusive quando incluído.
+- O resumo consulta `POST /api/appointments/estimate` e mostra apenas os adicionais quando o banho está coberto. Para valores maiores que zero, exige Pix, dinheiro, cartão de débito ou cartão de crédito como forma de pagamento **prevista**. Valores zero não exigem essa seleção.
+- Cancelamentos de pacote pelo cliente exigem a antecedência do contrato. Fora do prazo, a interface orienta contato com a loja; o administrador pode resolver pelo detalhe do agendamento. Não há perda automática de créditos por falta ou cancelamento tardio.
+- Os detalhes administrativos permitem concluir atendimentos após seu horário e cancelar agendamentos. Os relatórios mostram **Valores estimados**: o valor do contrato entra uma vez na ativação, junto aos valores avulsos/adicionais dos agendamentos confirmados/concluídos, sem repetir o preço do banho coberto. Cancelar um contrato ativado preserva esse valor histórico combinado; esses totais não representam caixa recebido.
+
+Ao reiniciar a API, `initDatabase()` cria `package_plans`, `customer_packages` e `package_usages` e acrescenta os campos de pacote, cobertura e pagamento a `appointments`. A migração é aditiva: agendamentos existentes permanecem avulsos e sua forma de pagamento fica não informada. O seed cria planos de referência a partir dos serviços de banho; o administrador pode cadastrar planos próprios e ajustar o valor de cada contrato.
+
+Rotas novas:
+
+| Método | Rota | Acesso |
+|---|---|---|
+| GET | `/api/packages` | Cliente: seus contratos e usos |
+| POST | `/api/appointments/estimate` | Cliente: estimativa sem reservar crédito |
+| GET/POST | `/api/admin/packages` | Admin: consultar/cadastrar contratos |
+| GET | `/api/admin/packages/options` | Admin: pets, planos e serviços |
+| POST | `/api/admin/packages/plans` | Admin: cadastrar plano |
+| PATCH | `/api/admin/packages/:id/status` | Admin: ativar/cancelar contrato |
+
+Validação: `npm test` na pasta `backend` executa as regras de negócio. `node evidencias_testes/qa/packages.mjs`, a partir da raiz do workspace, testa migração, API, concorrência e jornada no Chrome com MariaDB temporário. Esse script usa os binários do XAMPP (`QA_MYSQL_BIN` permite outro diretório) e Playwright da pasta de QA, sem acessar o banco do `.env`. Resultados em `evidencias_testes/resultados/qa_pacotes.json`. As suítes antigas de agendamento devem incluir `payment_method` quando houver valor estimado e respeitar a conclusão apenas após o horário do atendimento.
+
+## Preparação da automação de notificações pelo WhatsApp
+
+Aprovar, recusar ou cancelar um agendamento prepara uma mensagem destinada exclusivamente à automação do WhatsApp. Conteúdo, saída e decisão são gravados na mesma transação; repetir a mesma ação não duplica a mensagem. Cancelamentos feitos pelo cliente também entram na fila. Solicitações em análise e conclusões de atendimento não geram mensagem neste módulo.
+
+O app não possui painel de notificações, contador, leitura de mensagens ou consulta periódica de avisos. O cliente consulta a decisão abrindo ou recarregando **Meus Agendamentos**. A tela de sucesso orienta esse acompanhamento. As rotas de cliente `/api/notifications` e `/api/notifications/:id/read` foram removidas.
+
+Na inicialização, a migração aditiva cria `notifications` (conteúdo para automação) e `notification_deliveries` (saída), sem gerar mensagens retroativas. Cada mensagem tem uma saída WhatsApp em `aguardando_integracao`, com telefone do tutor e zero tentativas. **Nenhuma mensagem é enviada ao WhatsApp nesta versão**. O campo legado `read_at`, se existir em uma base anterior, é preservado e ignorado; novas bases não criam esse campo. Mensagens antigas e seus registros não são apagados.
+
+| Método | Rota | Acesso |
+|---|---|---|
+| GET | `/api/admin/notification-deliveries` | Admin: últimas 100 saídas e indicação de WhatsApp desativado |
+
+O ponto de extensão é `backend/services/whatsapp.js`. Seu transporte permanece desativado e `send()` rejeita chamadas com `WHATSAPP_NOT_CONFIGURED`; não simula sucesso. A futura integração deve implementar o transporte, configurar credenciais no servidor, validar o telefone e a autorização de contato, definir o formato de mensagem aceito pelo provedor e adicionar um worker para processar as saídas. O worker deverá usar o ID da saída como chave de idempotência quando suportado, tratar timeout e retentativas, gravar ID externo/erro/tentativas e atualizar `sent_at` somente após confirmação de aceite pelo provedor. Entrega e leitura externas exigem confirmação própria do provedor. Não basta alterar `enabled` para ativar o envio.
+
+Antes de ativar o canal, defina quais registros pendentes ainda são relevantes: não envie automaticamente avisos antigos de aprovação já cancelada ou de atendimentos passados. Não há worker, credenciais, chamada de API externa, lembrete antecipado ou sincronização com Google Agenda implementados. O registro preparado mantém uma cópia do telefone da decisão; políticas de retenção e atualização do contato devem integrar a ativação operacional.
+
+Validação: `npm test` em `backend` e `node evidencias_testes/qa/notifications.mjs` na raiz. A suíte integrada usa MariaDB temporário e Chrome, sem acessar o banco do `.env` e sem enviar mensagens. Evidências atuais em `evidencias_testes/resultados/qa_whatsapp_preparacao.json` e `qa_whatsapp_sem_avisos_mobile.png`. `qa_notificacoes.json` e sua captura são registros históricos da versão anterior com avisos internos.
+
 ## Próximos passos sugeridos
 
 - Reintroduzir verificação do telefone (SMS/WhatsApp) no login.
@@ -370,6 +421,6 @@ reintroduza uma verificação (SMS/WhatsApp) antes de uso real.
   Pages) com HTTPS.
 - Migrar uploads de `backend/uploads` (disco local) para um storage externo (S3, Cloudinary)
   antes de rodar em ambiente com múltiplas instâncias/deploys efêmeros.
-- Testes automatizados (hoje o projeto não tem suíte de testes).
+- Ampliar os testes automatizados para os demais fluxos do aplicativo.
 - Migrations formais (ex. `node-pg-migrate`/`umzug`) caso o schema cresça além do que o
   `CREATE TABLE IF NOT EXISTS` + `ALTER TABLE` idempotente do `initDatabase()` suporta bem.

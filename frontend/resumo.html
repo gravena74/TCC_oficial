@@ -52,7 +52,7 @@
           <span class="summary-label" id="servicePriceLabel"></span>
           <span class="summary-value" id="servicePriceValue"></span>
         </div>
-        <div class="summary-row" id="feeRow" style="display: none;">
+        <div class="summary-row" id="feeRow">
           <span class="summary-label">Frete (busca/entrega)</span>
           <span class="summary-value" id="feeValue"></span>
         </div>
@@ -62,12 +62,26 @@
         </div>
       </div>
 
+      <p id="packageSummary" class="text-muted-note" hidden></p>
+      <div id="paymentSection" class="card package-choice" hidden>
+        <label for="paymentMethod" class="section-label">Como pretende pagar na loja?</label>
+        <select id="paymentMethod" class="input-field">
+          <option value="">Selecione...</option>
+          <option value="pix">Pix</option>
+          <option value="dinheiro">Dinheiro</option>
+          <option value="cartao_debito">Cartão de débito</option>
+          <option value="cartao_credito">Cartão de crédito</option>
+        </select>
+        <p class="text-muted-note">O valor é uma estimativa. O pagamento será combinado presencialmente com o pet shop.</p>
+      </div>
+      <p id="estimateLoading" class="text-muted-note" role="status">Consultando valores e disponibilidade...</p>
+
       <p class="form-error" id="errorMsg" style="display: none; margin-top: 1rem;"></p>
 
       <div class="spacer" style="min-height: 1.5rem;"></div>
 
       <div class="field-stack">
-        <button type="button" class="btn-primary" id="confirmBtn">Avançar</button>
+        <button type="button" class="btn-primary" id="confirmBtn" disabled>Enviar solicitação</button>
         <a href="checkout.html" class="btn-outline">Voltar</a>
       </div>
     </div>

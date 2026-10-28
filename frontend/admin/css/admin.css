@@ -205,7 +205,11 @@
   color: var(--brand-800);
 }
 
+.admin-topbar__title { min-width: 0; }
+.admin-topbar .material-symbols-rounded { width: 1em; overflow: hidden; flex-shrink: 0; }
+
 .admin-topbar__profile {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -214,12 +218,15 @@
   color: var(--brand-800);
 }
 
+.admin-topbar__profile > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .admin-topbar__profile .material-symbols-rounded {
   font-size: 28px;
   color: var(--brand-600);
 }
 
 .admin-menu-toggle {
+  flex-shrink: 0;
   display: none;
   align-items: center;
   justify-content: center;

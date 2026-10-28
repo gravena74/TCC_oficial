@@ -40,6 +40,14 @@ export async function seed() {
     console.log(`Seed: ${services.length} servicos inseridos.`);
   }
 
+  // Templates iniciais sem desconto presumido; o administrador informa o valor combinado.
+  const bathServices = await db.all(`SELECT * FROM services WHERE name LIKE '%Banho%'`);
+  for (const service of bathServices) {
+    const plan = await db.get(`SELECT id FROM package_plans WHERE service_id = ?`, [service.id]);
+    if (!plan) await db.run(`INSERT INTO package_plans (id, name, service_id, price_cents) VALUES (?, ?, ?, ?)`,
+      [uuid(), `4 banhos — ${service.name}`, service.id, service.price_cents * 4]);
+  }
+
   const existingAdmin = await db.get(`SELECT COUNT(*) as c FROM admins`);
   if (existingAdmin.c > 0) {
     console.log("Seed: admin ja existe, nada a fazer.");

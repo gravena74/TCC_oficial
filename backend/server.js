@@ -13,6 +13,7 @@ import addressesRoutes from "./routes/addresses.js";
 import appointmentsRoutes from "./routes/appointments.js";
 import adminAuthRoutes from "./routes/adminAuth.js";
 import adminRoutes from "./routes/admin.js";
+import { customerPackageRoutes, adminPackageRoutes } from "./routes/packages.js";
 import { initDatabase } from "./db/database.js";
 import { seed } from "./db/seed.js";
 
@@ -36,7 +37,9 @@ app.use("/api/pets", petsRoutes);
 app.use("/api/services", servicesRoutes);
 app.use("/api/addresses", addressesRoutes);
 app.use("/api/appointments", appointmentsRoutes);
+app.use("/api/packages", customerPackageRoutes);
 app.use("/api/admin/auth", adminAuthRoutes);
+app.use("/api/admin/packages", adminPackageRoutes);
 app.use("/api/admin", adminRoutes);
 // Fica por ultimo: usa o prefixo generico "/api" (rotas aninhadas de
 // pets/:petId/vaccines e vaccines/:id) e aplica requireAuth a tudo que
@@ -54,7 +57,7 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: err.message || "Erro interno do servidor." });
 });
 
-const PORT = process.env.PORT || 3333;
+const PORT = process.env.PORT_SERVER || process.env.PORT || 3333;
 app.listen(PORT, () => {
   console.log(`Cafofo do Pet API rodando em http://localhost:${PORT}`);
 });

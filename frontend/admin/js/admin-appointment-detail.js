@@ -2,6 +2,7 @@ import { escapeHtml } from "../../js/html.js";
 import { resolveAssetUrl } from "../../js/api.js";
 import { formatCents } from "../../js/format.js";
 import { adminApi } from "./admin-api.js";
+import { PAYMENT_LABELS } from "../../js/packages-format.js";
 
 export const APPOINTMENT_STATUS_LABEL = {
   em_analise: "Em análise",
@@ -45,7 +46,7 @@ function ensureDialog() {
   dialog.innerHTML = `
     <h3 class="dialog-title">Detalhes do agendamento</h3>
     <div id="adminAppointmentDetailBody" style="margin-top: 1rem;"></div>
-    <div class="dialog-actions" id="adminAppointmentDetailActions" style="flex-direction: row; margin-top: 1.5rem;"></div>
+    <div class="dialog-actions" id="adminAppointmentDetailActions" style="flex-direction: row; flex-wrap: wrap; margin-top: 1.5rem;"></div>
   `;
   document.body.appendChild(dialog);
 
@@ -144,11 +145,13 @@ export function openAppointmentDetail(appointment, { onStatusChange } = {}) {
       <p style="font-weight: 700; margin-bottom: 0.25rem;">Valor estimado</p>
       <div style="display: flex; justify-content: space-between; padding: 0.375rem 0;">
         <span style="color: var(--muted);">Serviço</span>
-        <strong>${escapeHtml(formatCents(appointment.service_price_cents))}</strong>
+        <strong>${appointment.customer_package_id ? "Incluído no pacote" : escapeHtml(formatCents(appointment.service_price_cents))}</strong>
       </div>
+      ${appointment.customer_package_id ? `<p class="text-muted-note">Um crédito do pacote deste pet. ${appointment.pickup_included ? "Busca incluída. " : ""}${appointment.delivery_included ? "Entrega incluída." : ""}</p>` : ""}
       ${pickupFeeRow}
+      <p class="text-muted-note">${appointment.payment_method ? `Forma de pagamento prevista na loja: ${PAYMENT_LABELS[appointment.payment_method] || "Não informada"}` : appointment.customer_package_id && appointment.total_cents === 0 ? "Sem valor adicional previsto" : "Forma de pagamento não informada"}</p>
       <div style="display: flex; justify-content: space-between; padding: 0.5rem 0 0; border-top: 1px solid var(--brand-100); margin-top: 0.25rem;">
-        <span style="font-weight: 700;">Total</span>
+        <span style="font-weight: 700;">Total estimado</span>
         <strong>${escapeHtml(formatCents(appointment.total_cents))}</strong>
       </div>
     </div>
@@ -165,20 +168,24 @@ export function openAppointmentDetail(appointment, { onStatusChange } = {}) {
   actions.innerHTML = `
     ${approveBtn}
     ${rejectBtn}
+    ${appointment.status === "agendado" ? '<button type="button" class="btn-primary" id="adminAppointmentCompleteBtn" style="flex: 1;">Concluir atendimento</button>' : ""}
+    ${["em_analise", "agendado"].includes(appointment.status) ? '<button type="button" class="btn-outline" id="adminAppointmentCancelBtn" style="flex: 1;">Cancelar agendamento</button>' : ""}
     <button type="button" class="btn-outline" id="adminAppointmentCloseBtn" style="flex: 1;">Fechar</button>
   `;
 
   actions.querySelector("#adminAppointmentCloseBtn").addEventListener("click", () => dlg.close());
 
   async function changeStatus(status, btn) {
-    btn.disabled = true;
+    if (status === "cancelado" && !window.confirm("Cancelar este agendamento e liberar o crédito reservado, se houver?")) return;
+    actions.querySelectorAll("button").forEach((button) => { button.disabled = true; });
     try {
       await adminApi.updateAppointmentStatus(appointment.id, status);
       dlg.close();
       if (onStatusChange) onStatusChange();
+      else window.location.reload();
     } catch (err) {
       alert(err.message);
-      btn.disabled = false;
+      actions.querySelectorAll("button").forEach((button) => { button.disabled = false; });
     }
   }
 
@@ -186,6 +193,10 @@ export function openAppointmentDetail(appointment, { onStatusChange } = {}) {
   const rejectEl = actions.querySelector("#adminAppointmentRejectBtn");
   if (approveEl) approveEl.addEventListener("click", () => changeStatus("agendado", approveEl));
   if (rejectEl) rejectEl.addEventListener("click", () => changeStatus("recusado", rejectEl));
+  const completeEl = actions.querySelector("#adminAppointmentCompleteBtn");
+  const cancelEl = actions.querySelector("#adminAppointmentCancelBtn");
+  if (completeEl) completeEl.addEventListener("click", () => changeStatus("concluido", completeEl));
+  if (cancelEl) cancelEl.addEventListener("click", () => changeStatus("cancelado", cancelEl));
 
   dlg.showModal();
 }

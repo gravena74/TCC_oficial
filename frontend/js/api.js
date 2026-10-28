@@ -80,6 +80,8 @@ export const api = {
   createAddress: (address) => request("/addresses", { method: "POST", body: address }),
 
   getAppointments: () => request("/appointments"),
+  getPackages: () => request("/packages"),
+  estimateAppointment: (payload) => request("/appointments/estimate", { method: "POST", body: payload }),
   createAppointment: (payload) => request("/appointments", { method: "POST", body: payload }),
   cancelAppointment: (id) => request(`/appointments/${id}/cancel`, { method: "PATCH" }),
 };

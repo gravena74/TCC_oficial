@@ -58,4 +58,9 @@ export const adminApi = {
     request(`/appointments/${id}/status`, { method: "PATCH", body: { status } }),
 
   getAnalytics: () => request("/analytics"),
+  getPackages: () => request("/packages"),
+  getPackageOptions: () => request("/packages/options"),
+  createPackagePlan: (body) => request("/packages/plans", { method: "POST", body }),
+  createPackage: (body) => request("/packages", { method: "POST", body }),
+  updatePackageStatus: (id, status) => request(`/packages/${id}/status`, { method: "PATCH", body: { status } }),
 };

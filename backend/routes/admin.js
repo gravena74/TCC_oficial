@@ -4,9 +4,22 @@ import { requireAdminAuth } from "../middleware/adminAuth.js";
 import { asyncHandler } from "../middleware/asyncHandler.js";
 import { nowInShop, isPast, isValidDate, isValidMonth, isValidSlot } from "../utils/time.js";
 import { APPOINTMENT_TRANSITIONS, serviceMatchesPet } from "../utils/appointments.js";
+import { lockAppointment, updatePackageUsage } from "../utils/packages.js";
+import { queueAppointmentWhatsApp } from "../utils/notifications.js";
+import { whatsappTransport } from "../services/whatsapp.js";
 
 const router = Router();
 router.use(requireAdminAuth);
+
+// Histórico técnico do canal externo, acessível somente ao administrador.
+router.get("/notification-deliveries", asyncHandler(async (req, res) => {
+  const deliveries = await db.all(
+    `SELECT d.*, n.appointment_id, n.event_type, n.title, n.message
+     FROM notification_deliveries d JOIN notifications n ON n.id = d.notification_id
+     ORDER BY d.created_at DESC, d.id DESC LIMIT 100`
+  );
+  res.set("Cache-Control", "no-store").json({ whatsapp_enabled: whatsappTransport.enabled, deliveries });
+}));
 
 const APPOINTMENT_STATUSES = ["em_analise", "agendado", "concluido", "cancelado", "recusado"];
 // Estados que contam como negocio confirmado (usados nos graficos/estatisticas).
@@ -117,7 +130,7 @@ router.get("/appointments/review", asyncHandler(async (req, res) => {
      JOIN pets p ON p.id = a.pet_id
      JOIN services s ON s.id = a.service_id
      LEFT JOIN addresses ad ON ad.id = a.address_id
-     WHERE a.status IN ('em_analise', 'agendado', 'recusado')
+     WHERE a.status IN ('em_analise', 'agendado', 'recusado', 'concluido', 'cancelado')
      ORDER BY a.created_at DESC`
   );
   res.json({ appointments });
@@ -132,11 +145,9 @@ router.patch("/appointments/:id/status", asyncHandler(async (req, res) => {
 
   // Ordem de travas igual a criacao: servico antes do agendamento/pet.
   const outcome = await db.transaction(async (tx) => {
-    const reference = await tx.get(`SELECT service_id FROM appointments WHERE id = ?`, [req.params.id]);
-    if (!reference) return { status: 404, error: "Agendamento nao encontrado." };
-    const service = await tx.get(`SELECT * FROM services WHERE id = ? FOR UPDATE`, [reference.service_id]);
-    const current = await tx.get(`SELECT * FROM appointments WHERE id = ? FOR UPDATE`, [req.params.id]);
-    if (!current) return { status: 404, error: "Agendamento nao encontrado." };
+    const locked = await lockAppointment(tx, req.params.id);
+    if (!locked) return { status: 404, error: "Agendamento nao encontrado." };
+    const { appointment: current, service, pet: lockedPet } = locked;
     if (current.status === status) return null;
     if (!APPOINTMENT_TRANSITIONS[current.status]?.includes(status)) {
       return { status: 409, error: "Esta transicao de status nao e permitida. Crie uma nova solicitacao para reagendar." };
@@ -145,8 +156,8 @@ router.patch("/appointments/:id/status", asyncHandler(async (req, res) => {
       if (!isValidDate(current.date) || !isValidSlot(current.time) || isPast(current.date, current.time)) {
         return { status: 409, error: "A data ou o horario desta solicitacao nao e mais valido." };
       }
-      const pet = await tx.get(`SELECT * FROM pets WHERE id = ? AND deleted_at IS NULL FOR UPDATE`, [current.pet_id]);
-      if (!pet || !service || !serviceMatchesPet(service, pet)) {
+      const pet = lockedPet;
+      if (!pet || pet.deleted_at || !service || !serviceMatchesPet(service, pet)) {
         return { status: 409, error: "O pet ou o servico desta solicitacao precisa ser atualizado." };
       }
       const conflict = await tx.get(
@@ -155,7 +166,12 @@ router.patch("/appointments/:id/status", asyncHandler(async (req, res) => {
       );
       if (conflict) return { status: 409, error: "Este horario ja possui outra reserva." };
     }
+    if (status === "concluido" && !isPast(current.date, current.time)) {
+      return { status: 409, error: "O atendimento só pode ser concluído após o horário agendado." };
+    }
     await tx.run(`UPDATE appointments SET status = ? WHERE id = ?`, [status, current.id]);
+    await updatePackageUsage(tx, current, status);
+    await queueAppointmentWhatsApp(tx, current, status, { pet: lockedPet, service });
     return null;
   });
   if (outcome) return res.status(outcome.status).json({ error: outcome.error });
@@ -187,15 +203,19 @@ router.get("/analytics", asyncHandler(async (req, res) => {
       [sinceDate]
     ),
     db.all(
-      `SELECT DATE_FORMAT(date, '%Y-%m') as month, COALESCE(SUM(total_cents),0) as total_cents
-       FROM appointments WHERE status IN ${CONFIRMED_STATUSES} AND date >= ?
-       GROUP BY month`,
-      [sinceDate]
+      `SELECT month, SUM(total_cents) AS total_cents FROM (
+         SELECT LEFT(date, 7) AS month, total_cents FROM appointments
+         WHERE status IN ${CONFIRMED_STATUSES} AND date >= ?
+         UNION ALL
+         SELECT LEFT(starts_on, 7) AS month, price_cents AS total_cents FROM customer_packages
+         WHERE activated_at IS NOT NULL AND starts_on >= ?
+       ) estimates GROUP BY month`,
+      [sinceDate, sinceDate]
     ),
     db.all(
       `SELECT DATE_FORMAT(date, '%Y-%m') as month,
               COALESCE(SUM(pickup_fee_cents),0) as total_cents,
-              SUM(CASE WHEN pickup_fee_cents > 0 THEN 1 ELSE 0 END) as count
+              SUM(CASE WHEN checkin_mode = 'busca_em_casa' OR checkout_mode = 'entrega_em_casa' THEN 1 ELSE 0 END) as count
        FROM appointments WHERE status IN ${CONFIRMED_STATUSES} AND date >= ?
        GROUP BY month`,
       [sinceDate]
@@ -209,10 +229,13 @@ router.get("/analytics", asyncHandler(async (req, res) => {
     db.get(
       `SELECT COUNT(*) as appointments, COALESCE(SUM(total_cents),0) as revenue_cents,
               COUNT(DISTINCT user_id) as unique_clients
-       FROM appointments WHERE status IN ${CONFIRMED_STATUSES}`
+       FROM appointments WHERE status IN ${CONFIRMED_STATUSES} AND date >= ?`,
+      [sinceDate]
     ),
     db.get(`SELECT COUNT(*) as c FROM appointments WHERE status = 'em_analise'`),
   ]);
+  const packageTotals = await db.get(`SELECT COALESCE(SUM(price_cents), 0) AS total_cents
+    FROM customer_packages WHERE activated_at IS NOT NULL AND starts_on >= ?`, [sinceDate]);
 
   const toMap = (rows, key) => Object.fromEntries(rows.map((r) => [r.month, r[key]]));
   const demandMap = toMap(demandRows, "count");
@@ -232,7 +255,7 @@ router.get("/analytics", asyncHandler(async (req, res) => {
     monthlyClients: months.map((m) => ({ month: m, count: clientsMap[m] || 0 })),
     totals: {
       appointments: totals.appointments,
-      revenueCents: totals.revenue_cents,
+      revenueCents: Number(totals.revenue_cents) + Number(packageTotals.total_cents),
       uniqueClients: totals.unique_clients,
       pendingAppointments: pending.c,
     },

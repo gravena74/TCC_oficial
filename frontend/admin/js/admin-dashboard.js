@@ -22,7 +22,7 @@ function renderStats(analytics) {
     <div class="admin-stat-card admin-stat-card--b">
       <span class="admin-stat-card__icon material-symbols-rounded" aria-hidden="true">payments</span>
       <span class="admin-stat-card__value">${formatCents(totals.revenueCents)}</span>
-      <span class="admin-stat-card__label">Faturamento (12 meses)</span>
+      <span class="admin-stat-card__label">Valores estimados (12 meses)</span>
     </div>
     <div class="admin-stat-card admin-stat-card--c">
       <span class="admin-stat-card__icon material-symbols-rounded" aria-hidden="true">group</span>

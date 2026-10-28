@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1D6339" />
+    <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg" />
+    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito+Sans:wght@400;600;700;800&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="../css/style.css" />
+    <link rel="stylesheet" href="css/admin.css" />
+    <title>Pacotes — Painel Admin</title>
+  </head>
+  <body class="admin-body">
+    <aside class="admin-sidebar" id="adminSidebar"></aside>
+    <div class="admin-main">
+      <header class="admin-topbar" id="adminTopbar"></header>
+      <main class="admin-content">
+        <section class="admin-panel">
+          <div class="admin-panel__head"><h2>Novo contrato para um pet</h2><button class="btn-link" id="newPlanBtn" type="button">Cadastrar plano</button></div>
+          <p class="text-muted-note">4 banhos em 30 dias após a ativação, com um banho por semana (segunda a domingo). Registre as condições combinadas na loja.</p>
+          <form id="contractForm" class="package-form">
+            <label>Buscar cliente ou pet<input id="clientSearch" class="input-field" type="search" placeholder="Nome ou telefone" /></label>
+            <label>Cliente e pet<select id="contractPet" class="input-field" required><option value="">Selecione...</option></select></label>
+            <label>Plano compatível com o porte<select id="contractPlan" class="input-field" required><option value="">Selecione um pet primeiro...</option></select></label>
+            <label>Valor combinado do pacote (R$)<input id="contractPrice" class="input-field" type="number" min="0.01" max="1000000" step="0.01" required /></label>
+            <label>Antecedência para cancelamento (horas)<input id="contractNotice" class="input-field" type="number" min="0" max="168" step="1" value="24" required /></label>
+            <div class="package-checks"><label><input id="includesPickup" type="checkbox" /> Busca incluída</label><label><input id="includesDelivery" type="checkbox" /> Entrega incluída</label></div>
+            <label class="package-form__wide">Observações do contrato<textarea id="contractNotes" class="input-field" maxlength="2000" rows="2" placeholder="Condições combinadas com o cliente"></textarea></label>
+            <div class="package-form__wide"><button id="createContractBtn" type="submit" class="btn-primary">Cadastrar contrato</button></div>
+          </form>
+        </section>
+        <p id="packageError" class="form-error" role="alert" hidden></p>
+        <p id="packageFeedback" class="banner" role="status" hidden></p>
+        <section class="admin-panel" style="margin-top: 1.5rem;">
+          <div class="admin-panel__head"><h2>Contratos dos pets</h2><button id="refreshPackages" type="button" class="btn-link">Atualizar</button></div>
+          <p id="packagesLoading" class="admin-empty">Carregando...</p>
+          <div id="packageList" class="package-list"></div>
+        </section>
+      </main>
+    </div>
+    <dialog id="planDialog">
+      <h3 class="dialog-title">Cadastrar plano</h3>
+      <form id="planForm" class="field-stack" style="margin-top: 1rem;">
+        <label>Nome<input id="planName" class="input-field" maxlength="255" required /></label>
+        <label>Serviço de banho<select id="planService" class="input-field" required></select></label>
+        <label>Valor de referência (R$)<input id="planPrice" class="input-field" type="number" min="0.01" max="1000000" step="0.01" required /></label>
+        <p class="text-muted-note">4 atendimentos, validade de 30 dias. O valor final pode ser ajustado em cada contrato.</p>
+        <p id="planError" class="form-error" role="alert" hidden></p>
+        <div class="dialog-actions"><button type="submit" class="btn-primary" id="savePlanBtn">Salvar plano</button><button type="button" class="btn-outline" id="closePlanBtn">Voltar</button></div>
+      </form>
+    </dialog>
+    <script type="module" src="js/admin-pacotes.js"></script>
+  </body>
+</html>

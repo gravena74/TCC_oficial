@@ -1,3 +1,25 @@
+[hidden] { display: none !important; }
+
+.package-list { display: grid; gap: 1rem; margin-top: 1rem; }
+.package-card { min-width: 0; padding: 1rem; }
+.package-card p { margin-top: 0.5rem; overflow-wrap: anywhere; }
+.package-card h2, .package-card h3 { font-size: 1rem; overflow-wrap: anywhere; }
+.package-card__header { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.package-card__header .status-badge { white-space: normal; }
+.package-card details { margin-top: 0.75rem; }
+.package-card summary { cursor: pointer; font-weight: 700; }
+.package-card > .btn-primary { margin-top: 1rem; }
+.package-card__actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1rem; }
+.package-choice { padding: 1rem; margin: 1rem 0; }
+.package-choice .input-field { width: 100%; }
+.package-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; padding: 1rem 0; }
+.package-form label, #planForm label { display: grid; gap: 0.4rem; font-size: 0.875rem; font-weight: 700; min-width: 0; }
+.package-form .input-field, #planForm .input-field { width: 100%; }
+.package-form__wide { grid-column: 1 / -1; }
+.package-checks { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; }
+.package-checks label { display: flex; align-items: center; gap: 0.5rem; }
+@media (max-width: 600px) { .package-form { grid-template-columns: 1fr; } }
+
 /* ===== Tema (mesmas cores/fontes do design original) ===== */
 :root {
   --brand-50: #F0FAF3;
@@ -628,6 +650,15 @@ img {
 
 .pet-card--selected .pet-card__check .material-symbols-rounded {
   display: block;
+}
+
+.pet-card--booked .pet-card__check {
+  border-color: var(--muted);
+}
+
+.pet-card--booked .pet-card__check .material-symbols-rounded {
+  display: block;
+  color: var(--muted);
 }
 
 .pet-card__cancel {
